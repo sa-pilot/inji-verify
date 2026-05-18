@@ -79,7 +79,18 @@ function createKeyValueEntry(key: string, rawValue: any, currentLanguage: string
 
 function processFields(order: string[], credential: any, currentLanguage: string): { key: string; value: any }[] {
   return order
-    .map((key) => isSafeKey(key) ? createKeyValueEntry(key, credential?.[key], currentLanguage) : null)
+    .map((key) => {
+      if (!isSafeKey(key)) return null;
+      const entry = createKeyValueEntry(key, credential?.[key], currentLanguage);
+      if (entry) {
+        // check if key is uin/vid then return required key
+        if (key === 'uin' || key === 'vid') {
+          return { key: 'V-Credential Number', value: entry.value };
+        }
+        return entry;
+      }
+      return null;
+    })
     .filter((entry): entry is { key: string; value: any } => entry !== null);
 }
 
@@ -88,7 +99,12 @@ function processFarmerLandCredential(credential: any, currentLanguage: string): 
     .flatMap((keyEntry: any) => {
       if (typeof keyEntry === "string" && isSafeKey(keyEntry)) {
         const value = getValue(credential[keyEntry], currentLanguage);
-        return value ? { key: keyEntry, value } : null;
+        if (!value) return null;
+        //  Condition for uin/vid
+        if (keyEntry === 'uin' || keyEntry === 'vid') {
+          return { key: 'V-Credential Number', value };
+        }
+        return { key: keyEntry, value };
       }
 
       if (typeof keyEntry === "object" && keyEntry !== null) {
@@ -102,7 +118,12 @@ function processFarmerLandCredential(credential: any, currentLanguage: string): 
           .map((farmField) => {
             if (!isSafeKey(farmField)) return null;
             const value = getValue(farmObj[farmField], currentLanguage);
-            return value ? { key: farmField, value } : null;
+            if (!value) return null;
+            //  Condition for uin/vid
+            if (farmField === 'uin' || farmField === 'vid') {
+              return { key: 'V-Credential Number', value };
+            }
+            return { key: farmField, value };
           })
           .filter(
             (entry): entry is { key: string; value: any } => entry !== null
@@ -197,10 +218,19 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
             credential[key] !== "" &&
             !EXCLUDE_KEYS_SD_JWT_VC.includes(key.toLowerCase())
         )
-        .map((key) => ({
-          key,
-          value: getValue(credential[key], currentLanguage),
-        }));
+        .map((key) => {
+          //  Condition for uin/vid
+          if (key === 'uin' || key === 'vid') {
+            return {
+              key: 'V-Credential Number',
+              value: getValue(credential[key], currentLanguage),
+            };
+          }
+          return {
+            key,
+            value: getValue(credential[key], currentLanguage),
+          };
+        });
 
     default:
       // Filter out unwanted keys and parse nested objects
@@ -213,9 +243,17 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
             credential[key] !== undefined &&
             credential[key] !== ""
         )
-        .map((key) =>
-          createKeyValueEntry(key, credential[key], currentLanguage),
-        )
+        .map((key) => {
+          const entry = createKeyValueEntry(key, credential[key], currentLanguage);
+          if (entry) {
+            // Condition for uin/vid
+            if (key === 'uin' || key === 'vid') {
+              return { key: 'V-Credential Number', value: entry.value };
+            }
+            return entry;
+          }
+          return null;
+        })
         .filter(
           (entry): entry is { key: string; value: any } => entry !== null,
         );
