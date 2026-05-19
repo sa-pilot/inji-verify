@@ -78,17 +78,60 @@ function createKeyValueEntry(key: string, rawValue: any, currentLanguage: string
 }
 
 function processFields(order: string[], credential: any, currentLanguage: string): { key: string; value: any }[] {
+  //  Debug log
+  console.log('processFields called with:', { order, credential, credentialType: typeof credential });
+
+  //  Strong null check
+  if (!credential) {
+    console.error('processFields: credential is null/undefined');
+    return [];
+  }
+
+  if (typeof credential !== 'object') {
+    console.error('processFields: credential is not an object', typeof credential);
+    return [];
+  }
+
+  if (!Array.isArray(order)) {
+    console.error('processFields: order is not an array', order);
+    return [];
+  }
+
   return order
-    .map((key) => isSafeKey(key) ? createKeyValueEntry(key, credential?.[key], currentLanguage) : null)
+    .map((key) => {
+      if (!isSafeKey(key)) return null;
+      const entry = createKeyValueEntry(key, credential?.[key], currentLanguage);
+      if (entry) {
+        // Condition check if key is uin/vid then return required key
+        if (key === 'UIN' || key === 'VID') {
+          return { key: 'V-Credential Number', value: entry.value };
+        }
+        return entry;
+      }
+      return null;
+    })
     .filter((entry): entry is { key: string; value: any } => entry !== null);
 }
 
 function processFarmerLandCredential(credential: any, currentLanguage: string): { key: string; value: any }[] {
+  //  Debug log
+  console.log('processFarmerLandCredential called with:', { credential, credentialType: typeof credential });
+
+  if (!credential || typeof credential !== 'object') {
+    console.error('processFarmerLandCredential: credential is null/undefined');
+    return [];
+  }
+
   return getVCRenderOrders().farmerLandCredentialRenderOrder
     .flatMap((keyEntry: any) => {
       if (typeof keyEntry === "string" && isSafeKey(keyEntry)) {
         const value = getValue(credential[keyEntry], currentLanguage);
-        return value ? { key: keyEntry, value } : null;
+        if (!value) return null;
+        // Condition for uin/vid
+        if (keyEntry === 'UIN' || keyEntry === 'VID') {
+          return { key: 'V-Credential Number', value };
+        }
+        return { key: keyEntry, value };
       }
 
       if (typeof keyEntry === "object" && keyEntry !== null) {
@@ -102,7 +145,12 @@ function processFarmerLandCredential(credential: any, currentLanguage: string): 
           .map((farmField) => {
             if (!isSafeKey(farmField)) return null;
             const value = getValue(farmObj[farmField], currentLanguage);
-            return value ? { key: farmField, value } : null;
+            if (!value) return null;
+            // Condition for uin/vid
+            if (farmField === 'UIN' || farmField === 'VID') {
+              return { key: 'V-Credential Number', value };
+            }
+            return { key: farmField, value };
           })
           .filter(
             (entry): entry is { key: string; value: any } => entry !== null
@@ -115,12 +163,16 @@ function processFarmerLandCredential(credential: any, currentLanguage: string): 
 }
 
 export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string; value: any }[] => {
+  // debug log
+  console.log('getDetailsOrder called with:', { vc, vcType: typeof vc, currentLanguage });
+
   // Validate and parse VC if it's a string
   let parsedVc = vc;
 
   if (typeof vc === "string") {
     try {
       parsedVc = JSON.parse(vc);
+      console.log('Parsed VC string successfully');
     } catch (e) {
       console.error("Failed to parse VC string:", e);
       return [];
@@ -129,16 +181,17 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
 
   // Check if VC is null, undefined, or empty
   if (!parsedVc || (typeof parsedVc === "object" && Object.keys(parsedVc).length === 0)) {
+    console.error('VC is null, undefined, or empty');
     return [];
   }
 
   // Ensure parsedVc is a non-null object (not an array)
   if (Array.isArray(parsedVc)) {
-    console.error("Invalid VC format: expected an object");
+    console.error("Invalid VC format: expected an object, got array");
     return [];
   }
   if (typeof parsedVc !== "object" || parsedVc === null) {
-    console.error("Invalid VC format: expected an object");
+    console.error("Invalid VC format: expected an object", typeof parsedVc);
     return [];
   }
 
@@ -147,10 +200,14 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
       ? { ...parsedVc.regularClaims, ...parsedVc.disclosedClaims }
       : parsedVc?.credentialSubject ?? parsedVc;
 
+  console.log('Extracted credential:', credential);
+
   const type =
     parsedVc?.regularClaims && parsedVc?.disclosedClaims
       ? "SdJwtVC"
       : parsedVc?.type?.find((t: string) => t !== "VerifiableCredential");
+
+  console.log('VC type:', type);
 
   switch (type) {
     case "InsuranceCredential":
@@ -187,6 +244,10 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
       return processFarmerLandCredential(credential, currentLanguage);
 
     case "SdJwtVC":
+      if (!credential || typeof credential !== 'object') {
+        console.error('SdJwtVC: credential is invalid');
+        return [];
+      }
       return Object.keys(credential)
         .filter(
           (key) =>
@@ -197,12 +258,25 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
             credential[key] !== "" &&
             !EXCLUDE_KEYS_SD_JWT_VC.includes(key.toLowerCase())
         )
-        .map((key) => ({
-          key,
-          value: getValue(credential[key], currentLanguage),
-        }));
+        .map((key) => {
+          // Condition for uin/vid
+          if (key === 'UIN' || key === 'VID') {
+            return {
+              key: 'V-Credential Number',
+              value: getValue(credential[key], currentLanguage),
+            };
+          }
+          return {
+            key,
+            value: getValue(credential[key], currentLanguage),
+          };
+        });
 
     default:
+      if (!credential || typeof credential !== 'object') {
+        console.error('Default case: credential is invalid');
+        return [];
+      }
       // Filter out unwanted keys and parse nested objects
       return Object.keys(credential)
         .filter(
@@ -213,9 +287,17 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
             credential[key] !== undefined &&
             credential[key] !== ""
         )
-        .map((key) =>
-          createKeyValueEntry(key, credential[key], currentLanguage),
-        )
+        .map((key) => {
+          const entry = createKeyValueEntry(key, credential[key], currentLanguage);
+          if (entry) {
+            // Condition for uin/vid
+            if (key === 'UIN' || key === 'VID') {
+              return { key: 'V-Credential Number', value: entry.value };
+            }
+            return entry;
+          }
+          return null;
+        })
         .filter(
           (entry): entry is { key: string; value: any } => entry !== null,
         );
