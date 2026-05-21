@@ -170,11 +170,20 @@ export const getDetailsOrder = (vc: any, currentLanguage: string): { key: string
 
     case "MOSIPVerifiableCredential":
     case "MockVerifiableCredential":
-      return processFields(
-        getVCRenderOrders().MosipVerifiableCredentialRenderOrder,
-        credential,
-        currentLanguage
-      );
+        //Condition to display required value instead of UIN/VID
+      return getVCRenderOrders().MosipVerifiableCredentialRenderOrder
+        .map((key: string) => {
+          const entry = createKeyValueEntry(key, credential?.[key], currentLanguage);
+          if (entry) {
+            if (key === 'UIN') {
+              return { key: 'V-Credential Number', value: entry.value };
+            }
+            return entry;
+          }
+          return null;
+        })
+        .filter((entry: { key: string; value: any } | null): entry is { key: string; value: any } => entry !== null);
+
 
     case "IncomeTaxAccountCredential":
       return processFields(
